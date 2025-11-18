@@ -1,51 +1,65 @@
 name: FCS IaC Scan with Console Upload
 
+# ワークフローのトリガー設定
 on:
   push:
-    branches: [ main ]
+    branches: [ main ]  # mainブランチへのプッシュ時に実行
   pull_request:
-    branches: [ main ]
-  workflow_dispatch:
+    branches: [ main ]  # mainブランチへのPR作成時に実行
+  workflow_dispatch:    # 手動実行を許可
 
-# GitHub Actionsの権限を追加
+# GitHub Actionsの権限設定
 permissions:
-  contents: read
-  security-events: write  # SARIF アップロードに必要
+  contents: read           # リポジトリの読み取り権限
+  security-events: write   # GitHub Security タブへのSARIFアップロード権限
 
 jobs:
   fcs-scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest  # Ubuntu最新版のランナーで実行
     
     steps:
+      # ステップ1: リポジトリのコードをチェックアウト
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 出力ディレクトリを事前に作成
+      # ステップ2: スキャン結果の出力ディレクトリを作成
       - name: Create output directory
         run: mkdir -p ./fcs-results
 
+      # ステップ3: CrowdStrike FCS IaCスキャンを実行
       - name: Run FCS IaC Scan and Upload to Falcon Console
         uses: crowdstrike/fcs-action@v2.0.2
         id: fcs
         with:
+          # CrowdStrike API認証情報
           falcon_client_id: ${{ vars.FALCON_CLIENT_ID }}
-          falcon_region: 'us-1'  # 適切なリージョンに変更
+          falcon_region: 'us-1'
+          
+          # スキャン対象とプロジェクト情報
           path: '.'
-          severities: 'critical,high,medium'
-          fail_on: 'critical=1,high=5,medium=10'
-          report_formats: 'json,sarif'
+          project_name: 'labinfra'
+          owner: 'igaiga@example.com'
+          
+          # スキャン設定
+          severities: 'critical,high,medium'  # 検出する重要度レベル
+          fail_on: 'critical=1,high=5,medium=10'  # パイプライン失敗の閾値
+          
+          # 出力設定
+          report_formats: 'json,sarif'  # JSON形式とSARIF形式でレポート生成
           output_path: './fcs-results'
-          upload_results: true
+          upload_results: true  # CrowdStrike Falcon Consoleにアップロード
         env:
           FALCON_CLIENT_SECRET: ${{ secrets.FALCON_CLIENT_SECRET }}
-        continue-on-error: true  # スキャンが失敗してもSARIFアップロードを実行
+        continue-on-error: true  # エラーでも後続ステップを実行
 
+      # ステップ4: SARIF形式の結果をGitHub Securityタブにアップロード
       - name: Upload SARIF to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
         if: always() && hashFiles('./fcs-results/*.sarif') != ''
         with:
           sarif_file: ./fcs-results
 
+      # ステップ5: スキャン結果をGitHub Artifactsとして保存（90日間保持）
       - name: Upload scan results as artifact
         uses: actions/upload-artifact@v4
         if: always() && hashFiles('./fcs-results/*') != ''
@@ -53,9 +67,10 @@ jobs:
           name: fcs-scan-results
           path: ./fcs-results/
 
-      # スキャン結果を確認
+      # ステップ6: スキャン結果を確認し、問題があればパイプラインを失敗させる
       - name: Check scan results
         if: steps.fcs.outputs.exit-code != '0'
         run: |
           echo "FCS scan found issues. Exit code: ${{ steps.fcs.outputs.exit-code }}"
+          echo "詳細はCrowdStrike Falcon ConsoleまたはGitHub Security タブで確認してください"
           exit 1
