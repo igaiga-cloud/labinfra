@@ -7,6 +7,11 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+# GitHub Actionsの権限を追加
+permissions:
+  contents: read
+  security-events: write  # SARIF アップロードに必要
+
 jobs:
   fcs-scan:
     runs-on: ubuntu-latest
@@ -15,11 +20,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      # 出力ディレクトリを事前に作成
+      - name: Create output directory
+        run: mkdir -p ./fcs-results
+
       - name: Run FCS IaC Scan and Upload to Falcon Console
         uses: crowdstrike/fcs-action@v2.0.2
         id: fcs
         with:
-          falcon_client_id: ${{ vars.FALCON_CLIENT_ID }}  # ← Variablesから取得
+          falcon_client_id: ${{ vars.FALCON_CLIENT_ID }}
           falcon_region: 'us-1'  # 適切なリージョンに変更
           path: '.'
           severities: 'critical,high,medium'
@@ -28,17 +37,25 @@ jobs:
           output_path: './fcs-results'
           upload_results: true
         env:
-          FALCON_CLIENT_SECRET: ${{ secrets.FALCON_CLIENT_SECRET }}  # ← Secretsから取得
+          FALCON_CLIENT_SECRET: ${{ secrets.FALCON_CLIENT_SECRET }}
+        continue-on-error: true  # スキャンが失敗してもSARIFアップロードを実行
 
       - name: Upload SARIF to GitHub Security
         uses: github/codeql-action/upload-sarif@v3
-        if: always()
+        if: always() && hashFiles('./fcs-results/*.sarif') != ''
         with:
-          sarif_file: ./fcs-results/report.sarif
+          sarif_file: ./fcs-results
 
       - name: Upload scan results as artifact
         uses: actions/upload-artifact@v4
-        if: always()
+        if: always() && hashFiles('./fcs-results/*') != ''
         with:
           name: fcs-scan-results
           path: ./fcs-results/
+
+      # スキャン結果を確認
+      - name: Check scan results
+        if: steps.fcs.outputs.exit-code != '0'
+        run: |
+          echo "FCS scan found issues. Exit code: ${{ steps.fcs.outputs.exit-code }}"
+          exit 1
