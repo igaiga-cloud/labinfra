@@ -1,0 +1,44 @@
+name: FCS IaC Scan with Console Upload
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  fcs-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Run FCS IaC Scan and Upload to Falcon Console
+        uses: crowdstrike/fcs-action@v2.0.2
+        id: fcs
+        with:
+          falcon_client_id: ${{ vars.FALCON_CLIENT_ID }}  # ← Variablesから取得
+          falcon_region: 'us-1'  # 適切なリージョンに変更
+          path: '.'
+          severities: 'critical,high,medium'
+          fail_on: 'critical=1,high=5,medium=10'
+          report_formats: 'json,sarif'
+          output_path: './fcs-results'
+          upload_results: true
+        env:
+          FALCON_CLIENT_SECRET: ${{ secrets.FALCON_CLIENT_SECRET }}  # ← Secretsから取得
+
+      - name: Upload SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: ./fcs-results/report.sarif
+
+      - name: Upload scan results as artifact
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: fcs-scan-results
+          path: ./fcs-results/
