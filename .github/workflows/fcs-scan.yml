@@ -1,6 +1,6 @@
 name: FCS IaC Scan with Console Upload
 
-# ワークフローのトリガー設定
+# ワークフローのトリガー
 on:
   push:
     branches: [ main ]  # mainブランチへのプッシュ時に実行
